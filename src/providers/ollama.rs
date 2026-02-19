@@ -82,7 +82,7 @@ impl OllamaProvider {
         reqwest::Url::parse(&self.base_url)
             .ok()
             .and_then(|url| url.host_str().map(|host| host.to_string()))
-            .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1"))
+            .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "host.docker.internal"))
     }
 
     fn http_client(&self) -> Client {
@@ -91,18 +91,20 @@ impl OllamaProvider {
 
     fn resolve_request_details(&self, model: &str) -> anyhow::Result<(String, bool)> {
         let requests_cloud = model.ends_with(":cloud");
-        let normalized_model = model.strip_suffix(":cloud").unwrap_or(model).to_string();
+        // For local endpoints, keep the :cloud suffix so Ollama knows to route via ollama.com
+        // For remote endpoints, strip it since they handle cloud routing differently
+        let normalized_model = if requests_cloud && !self.is_local_endpoint() {
+            model.strip_suffix(":cloud").unwrap_or(model).to_string()
+        } else {
+            model.to_string()
+        };
 
-        if requests_cloud && self.is_local_endpoint() {
+        // Cloud models are allowed on local Ollama endpoints because Ollama can
+        // route them via its built-in proxy (ollama.com). No external API key needed.
+        // For remote Ollama endpoints, cloud models require authentication.
+        if requests_cloud && !self.is_local_endpoint() && self.api_key.is_none() {
             anyhow::bail!(
-                "Model '{}' requested cloud routing, but Ollama endpoint is local. Configure api_url with a remote Ollama endpoint.",
-                model
-            );
-        }
-
-        if requests_cloud && self.api_key.is_none() {
-            anyhow::bail!(
-                "Model '{}' requested cloud routing, but no API key is configured. Set OLLAMA_API_KEY or config api_key.",
+                "Model '{}' requested cloud routing on a remote Ollama endpoint, but no API key is configured. Set OLLAMA_API_KEY or config api_key.",
                 model
             );
         }
@@ -413,25 +415,24 @@ mod tests {
     }
 
     #[test]
-    fn cloud_suffix_with_local_endpoint_errors() {
+    fn cloud_suffix_with_local_endpoint_succeeds() {
+        // Local Ollama can route cloud models via its built-in proxy
         let p = OllamaProvider::new(None, Some("ollama-key"));
-        let error = p
-            .resolve_request_details("qwen3:cloud")
-            .expect_err("cloud suffix should fail on local endpoint");
-        assert!(error
-            .to_string()
-            .contains("requested cloud routing, but Ollama endpoint is local"));
+        let (model, should_auth) = p.resolve_request_details("qwen3:cloud").unwrap();
+        assert_eq!(model, "qwen3");
+        assert!(!should_auth); // No auth needed on local endpoint
     }
 
     #[test]
-    fn cloud_suffix_without_api_key_errors() {
+    fn cloud_suffix_on_remote_without_api_key_errors() {
+        // Remote Ollama endpoints require API key for cloud models
         let p = OllamaProvider::new(Some("https://ollama.com"), None);
         let error = p
             .resolve_request_details("qwen3:cloud")
-            .expect_err("cloud suffix should require API key");
+            .expect_err("cloud suffix on remote endpoint should require API key");
         assert!(error
             .to_string()
-            .contains("requested cloud routing, but no API key is configured"));
+            .contains("cloud routing on a remote Ollama endpoint"));
     }
 
     #[test]

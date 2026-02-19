@@ -41,12 +41,13 @@ RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/regist
 # Prepare runtime directory structure and default config inline (no extra stage)
 RUN mkdir -p /zeroclaw-data/.zeroclaw /zeroclaw-data/workspace && \
     cat > /zeroclaw-data/.zeroclaw/config.toml <<EOF && \
+    chmod 600 /zeroclaw-data/.zeroclaw/config.toml && \
     chown -R 65534:65534 /zeroclaw-data
 workspace_dir = "/zeroclaw-data/workspace"
 config_path = "/zeroclaw-data/.zeroclaw/config.toml"
-api_key = ""
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4-20250514"
+api_url = "http://host.docker.internal:11434"
+default_provider = "ollama"
+default_model = "kimi-k2.5:cloud"
 default_temperature = 0.7
 
 [gateway]
@@ -77,7 +78,7 @@ ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
 # Defaults for local dev (Ollama) - matches config.template.toml
 ENV PROVIDER="ollama"
-ENV ZEROCLAW_MODEL="llama3.2"
+ENV ZEROCLAW_MODEL="kimi-k2.5:cloud"
 ENV ZEROCLAW_GATEWAY_PORT=3000
 
 # Note: API_KEY is intentionally NOT set here to avoid confusion.
@@ -100,7 +101,7 @@ ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
 # Default provider (model is set in config.toml, not here,
 # so config file edits are not silently overridden)
-ENV PROVIDER="openrouter"
+ENV PROVIDER="ollama"
 ENV ZEROCLAW_GATEWAY_PORT=3000
 
 # API_KEY must be provided at runtime!
